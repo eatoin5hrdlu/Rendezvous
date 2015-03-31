@@ -1,0 +1,31 @@
+#!/bin/bash
+# Put this fine in: /etc/init.d/srendezvous
+# To install:  sudo update-rc.d /etc/init.d/srendezvous defaults
+
+### BEGIN INIT INFO
+# Provides:          srendezvous
+# Required-Start:    $remote_fs $syslog
+# Required-Stop:     $remote_fs $syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Example initscript
+# Description:       This service manages Rendezvous in Space
+### END INIT INFO
+
+
+case "$1" in 
+    start)
+        echo "Starting service for rendezvous"
+        /root/src/Rendezvous/rendezvous 98:D3:31:30:2A:D1
+        ;;
+    stop)
+        echo "Stopping servoblaster"
+        killall rendezvous
+        ;;
+    *)
+        echo "Usage: /etc/init.d/srendezvous start|stop"
+        exit 1
+        ;;
+esac
+
+exit 0
