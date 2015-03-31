@@ -9,6 +9,7 @@
 #define E1   5
 #define M1   6
 
+#define EOT "end_of_data"
 
 // Vertical Direction/Speed Parameters
 #define DEFAULT_MAX_HEIGHT 9000.0       // Don't go higher than this
@@ -147,6 +148,7 @@ void respondToRequest(void)
 
 boolean process_command(char c1, char c2, int value)
 {
+boolean rval = true;
 byte d;
 char buffer[20];
 	switch(c2)
@@ -188,19 +190,21 @@ char buffer[20];
 			sprintf(buffer,"%06d",vertical_speed);
 			Serial.println(buffer);
 			break;
+		case 'u':
 		case 'v':
 			vertical(UP);
 			break;
 
 		default:
-			return false;
+			rval = false;
 	}
-	return true;
+	Serial.println(EOT);
+	return rval;
 }
 
 void loop() 
 {
-  delay(1);
+  delay(10);
   respondToRequest();
   if ((cntr++ % 5000) == 0) {
 	if (inactivity == -1) {
