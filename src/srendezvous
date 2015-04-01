@@ -19,7 +19,7 @@ case "$1" in
         /root/src/Rendezvous/rendezvous 98:D3:31:30:2A:D1
         ;;
     stop)
-        echo "Stopping servoblaster"
+        echo "Stopping rendezvous"
         killall rendezvous
         ;;
     *)
