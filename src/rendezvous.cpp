@@ -26,7 +26,28 @@ int v = 0; // Set verbosity of debugging print statements 0=off
 #else
 #include "plbluelinux.h"
 #endif
+/*
+ * Global variables for error conditions, how many times to retry connections,
+ * maximum wait for read, etc.
+ */
+
 int g_tries = 10;
+int struct timeval g_timeout;
+
+void readTimeout(int sockfd,int secs) {
+  g_timeout.tv_sec = secs;
+  g_timeout.tv_usec = 0;
+
+//  Socket read timeout
+  if (setsockopt (sockfd, SOL_SOCKET, SO_RCVTIMEO, (char *)&g_timeout,
+                sizeof(timeout)) < 0)
+    fprintf(stderr("failed to set recv timeout on socket\n");
+
+//  Socket connection timeout (not at this time)
+//  if (setsockopt (sockfd, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeout,
+//                sizeof(timeout)) < 0)
+//        error("setsockopt failed\n");
+}
 
 int get_socket() {
   int s = -1;
@@ -41,6 +62,7 @@ int get_socket() {
       usleep(200000);
     }
   }
+  readTimeout(s,10);
   return s;
 }
 
@@ -79,19 +101,28 @@ char *converse(int s, char const *cmd) {
   write(s, cmd, strlen(cmd));
   sleep(0.1);  // Give the guy a chance to respond fully
   bytes_read = read(s, buf, sizeof(buf));
-  /*
-   * fprintf(stderr,"eot[%s:%d]tb[%d]br[%d]buf[%s]\n",eot,strlen(eot),total_bytes,bytes_read,buf);
-   */
+  if (errno == EAGAIN || errno == EWOULDBLOCK && bytes_read == 0)
+    return (char *)"NAK";
+
+/*
+ * fprintf(stderr,"eot[%s:%d]tb[%d]br[%d]buf[%s]\n",
+ *               eot,strlen(eot),total_bytes,bytes_read,buf);
+ */
+
   while (bytes_read > 0 && total_bytes < sizeof(buf) ) {
     total_bytes += bytes_read;
     if (!strcmp(&buf[total_bytes-strlen(eot)], eot))
       bytes_read = 0;
-    else
+    else {
       bytes_read = read(s, &buf[total_bytes], sizeof(buf)-total_bytes);
+      if (errno == EAGAIN || errno == EWOULDBLOCK && bytes_read == 0)
+	return (char *)"NAK";
+    }
   }
+
   if (v>1) fprintf(stderr,"[[%s]]\n", buf);
   if( total_bytes > 0 ) return buf;
-  return (char *)"NAK";  /* indicate communication failure or buffer overflow? */
+  return (char *)"NAK"; /* communication failure/timeout/buffer overflow */
 }
 
 const int pwmPin  = 18; // PWM LED - Broadcom pin 18, P1 pin 12
@@ -115,21 +146,24 @@ void clip_velocity(int v) {
 
 int rendezvous(char *addr)
 {
-  fprintf(stderr, "Entering rendezvous\n");
-  int s = bluetoothSocket(addr);
-  if (v>1) fprintf(stderr, "connected at %d\n",s);
-  wiringPiSetupGpio();          // Broadcom pin numbers
-  if (v>2) fprintf(stderr, "wpi setup");
-
-    pinMode(pwmPin, PWM_OUTPUT);  // Set Shuttle speed as PWM output
-    pinMode(upPin, INPUT);        // Increase Altitude
-    pinMode(downPin, INPUT);      // Decrease Altitude
-
-    pullUpDnControl(upPin, PUD_UP);   // Enable pull-up resistors
-    pullUpDnControl(downPin, PUD_UP);
     int cntr = 0;
     while(1) {
       cntr++;
+      if (g_reset) {
+	fprintf(stderr, "(re)Initializing rendezvous\n");
+	int s = bluetoothSocket(addr);
+	if (v>1) fprintf(stderr, "connected at %d\n",s);
+	wiringPiSetupGpio();          // Broadcom pin numbers
+	if (v>2) fprintf(stderr, "wpi setup");
+	
+	pinMode(pwmPin, PWM_OUTPUT);  // Set Shuttle speed as PWM output
+	pinMode(upPin, INPUT);        // Increase Altitude
+	pinMode(downPin, INPUT);      // Decrease Altitude
+	
+	pullUpDnControl(upPin, PUD_UP);   // Enable pull-up resistors
+	pullUpDnControl(downPin, PUD_UP);
+	g_reset = false;
+      }
       while (digitalRead(upPin) && !digitalRead(downPin)) {
 	converse(s, "v\n");
 	usleep(800000);
@@ -145,18 +179,21 @@ int rendezvous(char *addr)
 	pwmWrite(pwmPin, velocity);
       }
 
-      usleep(200000);
+      usleep(200000); /* 0.2 seconds */
 
       /*
        * Re-adjust shuttle velocity according to actual altitude
-       * But only so often
+       * But only so often (every 10 seconds currently, 50 X 0.2s)
        */
 	 if (cntr % 50 == 0) {
 	   const char *reply = converse(s, "a\n");
 	   if ( sscanf(reply, "%d", &actual_altitude) == 1)  {
 	     if (v>1) fprintf(stderr, "Got altitude [%d]\n", actual_altitude);
-	   } else
+	   } else {
 	     fprintf(stderr, "Failed to get altitude from [%s]\n", reply);
+	     /* This is where we need to redo the bluetooth socket*/
+	     g_reset = true;
+	   }
 
 	   if (v>2) fprintf(stderr, "Shuttle says altitude is %d\n", actual_altitude);
 
@@ -175,21 +212,24 @@ int rendezvous(char *addr)
 }
 
 void usage() {
-    fprintf(stderr, "usage:  bluetest <BLUETOOTH-MACADDRESS> [-v N]\nwhere N = debug verbosity\n");
+    fprintf(stderr, "usage:  bluetest <BLUETOOTH-MACADDRESS> [-v N]\nwhere N = debug verbosity. First argument must be Bluetooth address\n");
     exit(0);
 }
 
 int main(int argc, char **argv)
 {
+  g_reset = true;
+
   if (argc > 3) {
     if (!strcmp(argv[2],"-v")) v = atoi(argv[3]);
     else usage();
   }
+  /* Simple check for valid bluetooth address format */
   if (argc < 2 || strlen(argv[1]) != 17) usage();
 
   setbuf(stderr,NULL);
   rendezvous(argv[1]);
-  fprintf(stderr, "returned from rendezvous. WTF?\n");
+  fprintf(stderr, "returned from rendezvous. This should not happen.\n");
   return 0;
 }
 
