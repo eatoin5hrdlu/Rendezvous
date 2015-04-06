@@ -16,7 +16,7 @@
 case "$1" in 
     start)
         echo "Starting service for rendezvous"
-        /root/src/Rendezvous/rendezvous 98:D3:31:30:2A:D1
+        /bin/bash -c '/root/src/Rendezvous/src/rendezvous 98:D3:31:40:1D:57 &'
         ;;
     stop)
         echo "Stopping rendezvous"
@@ -29,3 +29,4 @@ case "$1" in
 esac
 
 exit 0
+
